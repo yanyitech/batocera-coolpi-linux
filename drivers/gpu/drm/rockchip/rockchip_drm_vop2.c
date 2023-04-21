@@ -10,7 +10,6 @@
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_debugfs.h>
 #include <drm/drm_flip_work.h>
-#include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_plane_helper.h>
@@ -263,7 +262,7 @@ struct vop2_power_domain {
 	 *
 	 */
 	spinlock_t lock;
-	unsigned int ref_count;
+	int ref_count;
 	bool on;
 	/* @vp_mask: Bit mask of video port of the power domain's
 	 * module attached to.
@@ -1616,7 +1615,7 @@ static void vop2_power_domain_on(struct vop2_power_domain *pd)
 	struct vop2 *vop2 = pd->vop2;
 
 	if (!pd->on) {
-		dev_dbg(vop2->dev, "pd%d on\n", ffs(pd->data->id) - 1);
+		dev_info(vop2->dev, "pd%d on\n", ffs(pd->data->id) - 1);
 		vop2_wait_power_domain_off(pd);
 		VOP_MODULE_SET(vop2, pd->data, pd, 0);
 		vop2_wait_power_domain_on(pd);
@@ -1631,13 +1630,14 @@ static void vop2_power_domain_off(struct vop2_power_domain *pd)
 {
 	struct vop2 *vop2 = pd->vop2;
 
-	dev_dbg(vop2->dev, "pd%d off\n", ffs(pd->data->id) - 1);
+	dev_info(vop2->dev, "pd%d off\n", ffs(pd->data->id) - 1);
 	pd->on = false;
 	VOP_MODULE_SET(vop2, pd->data, pd, 1);
 }
 
 static void vop2_power_domain_get(struct vop2_power_domain *pd)
 {
+	dev_info(pd->vop2->dev, "pd%d get ref_count:%d\n", ffs(pd->data->id) - 1, pd->ref_count);
 	if (pd->parent)
 		vop2_power_domain_get(pd->parent);
 
@@ -1653,6 +1653,7 @@ static void vop2_power_domain_get(struct vop2_power_domain *pd)
 
 static void vop2_power_domain_put(struct vop2_power_domain *pd)
 {
+	dev_info(pd->vop2->dev, "pd%d put ref_count:%d\n", ffs(pd->data->id) - 1, pd->ref_count);
 	spin_lock(&pd->lock);
 
 	/*
@@ -1675,6 +1676,8 @@ static void vop2_power_domain_put(struct vop2_power_domain *pd)
 		else
 			vop2_power_domain_off(pd);
 	}
+	if (pd->ref_count < 0)
+		pd->ref_count = 0;
 
 	spin_unlock(&pd->lock);
 	if (pd->parent)
@@ -3286,8 +3289,8 @@ static void vop2_crtc_load_lut(struct drm_crtc *crtc)
 	if (!vop2->is_enabled || !vp->lut || !vop2->lut_regs)
 		return;
 
-	if (WARN_ON(!drm_modeset_is_locked(&crtc->mutex)))
-		return;
+	//if (WARN_ON(!drm_modeset_is_locked(&crtc->mutex)))
+	//	return;
 
 	if (vop2->version == VOP_VERSION_RK3568) {
 		rk3568_crtc_load_lut(crtc);
@@ -5185,7 +5188,6 @@ static const struct drm_plane_helper_funcs vop2_plane_helper_funcs = {
 	.atomic_check = vop2_plane_atomic_check,
 	.atomic_update = vop2_plane_atomic_update,
 	.atomic_disable = vop2_plane_atomic_disable,
-	.prepare_fb = drm_gem_fb_prepare_fb,
 };
 
 /**
